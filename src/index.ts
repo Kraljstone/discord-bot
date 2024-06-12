@@ -1,41 +1,46 @@
-// Import the necessary discord.js classes
-import { Client, Collection, GatewayIntentBits } from 'discord.js';
-import fs from 'fs';
+import { GatewayIntentBits, Interaction } from 'discord.js';
 import path from 'path';
 import { token } from './config.json';
 import { ExtendedClient } from './ExtendedClient';
+import { readCommands } from './commands/readCommands';
 
-const client = new Client({
+// Create a new instance of ExtendedClient
+const client = new ExtendedClient({
   intents: [GatewayIntentBits.Guilds],
-}) as ExtendedClient;
-client.commands = new Collection();
+});
 
-// Function to recursively read commands from directories
-const readCommands = (directory: string) => {
-  const files = fs.readdirSync(directory);
-  for (const file of files) {
-    const filePath = path.join(directory, file);
-    if (fs.statSync(filePath).isDirectory()) {
-      readCommands(filePath);
-    } else if (file.endsWith('.js')) {
-      const command = require(filePath);
-      if ('data' in command && 'execute' in command) {
-        client.commands.set(command.data.name, command);
-      } else {
-        console.log(
-          `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
-        );
-      }
-    }
-  }
-};
-
+// Read commands from the specified directory
 const commandsPath = path.join(__dirname, 'commands');
 readCommands(commandsPath);
 
 // Log in to Discord with your client's token
 client.login(token).catch(console.error);
 
-client.on('interactionCreate', (interaction) => {
-  console.log(interaction);
+// Handle interactionCreate events
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const command = client.commands.get(interaction.commandName);
+
+  if (!command) {
+    console.error(`No command matching ${interaction.commandName} was found.`);
+    return;
+  }
+
+  try {
+    await command.execute(interaction);
+  } catch (error) {
+    console.error(error);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: 'There was an error while executing this command!',
+        ephemeral: true,
+      });
+    } else {
+      await interaction.reply({
+        content: 'There was an error while executing this command!',
+        ephemeral: true,
+      });
+    }
+  }
 });
